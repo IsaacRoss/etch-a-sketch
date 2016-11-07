@@ -33,6 +33,7 @@ type alias Model =
 type Msg
     = AddClick Position
     | HandleShift Bool
+    | ClearStamps
     | NoOp
 
 
@@ -59,6 +60,9 @@ update msg model =
         HandleShift pressed ->
             { model | shift = pressed } ! []
 
+        ClearStamps ->
+            { model | stamps = [] } ! []
+
         NoOp ->
             model ! []
 
@@ -68,6 +72,9 @@ mapKeyDown keyCode =
     case keyCode of
         16 ->
             HandleShift True
+
+        67 ->
+            ClearStamps
 
         _ ->
             NoOp
