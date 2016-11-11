@@ -6,25 +6,35 @@ import Element exposing (..)
 import Keyboard
 import Html exposing (..)
 import Html.App as App
+import Keyboard.Extra
+import Time exposing (Time, second)
+
+
+initialModel : ( Model, Cmd Msg )
+initialModel =
+    let
+        ( keyboardModel, keyboardCmd ) =
+            Keyboard.Extra.init
+    in
+        ( { points = [ ( 0, 0 ) ]
+          , x = 0
+          , y = 0
+          , keyboardModel = keyboardModel
+          }
+        , Cmd.map KeyboardExtraMsg keyboardCmd
+        )
 
 
 type alias Model =
     { points : List Point
     , x : Int
     , y : Int
+    , keyboardModel : Keyboard.Extra.Model
     }
 
 
 type alias Point =
     ( Int, Int )
-
-
-initialModel : Model
-initialModel =
-    { points = [ ( 0, 0 ) ]
-    , x = 0
-    , y = 0
-    }
 
 
 view : Model -> Html Msg
@@ -52,7 +62,7 @@ drawLine points =
 main : Program Never
 main =
     App.program
-        { init = initialModel ! []
+        { init = initialModel
         , update = update
         , view = view
         , subscriptions = subscriptions
@@ -60,19 +70,52 @@ main =
 
 
 type Msg
-    = KeyUp Int
+    = KeyboardExtraMsg Keyboard.Extra.Msg
+    | Tick Time
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Keyboard.ups KeyUp
+    Sub.batch
+        [ Sub.map KeyboardExtraMsg Keyboard.Extra.subscriptions
+        , Time.every (1 / 30 * second) Tick
+        ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        KeyUp keyCode ->
-            ( keyUp keyCode model, Cmd.none )
+        KeyboardExtraMsg keyMsg ->
+            let
+                ( keyboardModel, keyboardCmd ) =
+                    Keyboard.Extra.update keyMsg model.keyboardModel
+            in
+                ( { model | keyboardModel = keyboardModel }
+                , Cmd.map KeyboardExtraMsg keyboardCmd
+                )
+
+        Tick _ ->
+            let
+                { x, y } =
+                    Keyboard.Extra.arrows model.keyboardModel
+
+                newX =
+                    model.x + x
+
+                newY =
+                    model.y + y
+            in
+                case ( x, y ) of
+                    ( 0, 0 ) ->
+                        model ! []
+
+                    _ ->
+                        { model
+                            | points = ( newX, newY ) :: model.points
+                            , x = newX
+                            , y = newY
+                        }
+                            ! []
 
 
 keyUp : Keyboard.KeyCode -> Model -> Model
