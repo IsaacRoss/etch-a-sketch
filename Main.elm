@@ -18,7 +18,9 @@ type alias Model =
     , y : Int
     , keyboardModel : Keyboard.Extra.Model
     , clock : Time
+    , color : Color
     , animation : Animation
+    , animations : List (Time -> Animation)
     }
 
 
@@ -30,14 +32,7 @@ type Msg
     = KeyboardExtraMsg Keyboard.Extra.Msg
     | Tick Time
     | Shake
-
-
-shakeAnimation : Time -> Animation
-shakeAnimation t =
-    animation t
-        |> from 0
-        |> to 360
-        |> duration (500 * Time.millisecond)
+    | SetColor Color
 
 
 init : ( Model, Cmd Msg )
@@ -53,6 +48,8 @@ init =
           , clock =
                 0
           , animation = static 0
+          , color = red
+          , animations = []
           }
         , Cmd.batch
             [ Cmd.map KeyboardExtraMsg keyboardCmd
@@ -60,9 +57,23 @@ init =
         )
 
 
+animations : List (Time -> Animation)
+animations =
+    [ shakeAnimation
+    , shakeAnimation'
+    , shakeAnimation''
+    , shakeAnimation'''
+    ]
+
+
 shakeButton : Html Msg
 shakeButton =
     Html.button [ onClick Shake ] [ Html.text "Shake it good" ]
+
+
+colorButton : Color -> String -> Html Msg
+colorButton color label =
+    Html.button [ onClick (SetColor color) ] [ Html.text label ]
 
 
 view : Model -> Html Msg
@@ -74,14 +85,17 @@ view model =
         div []
             [ collage 800
                 800
-                [ (rotate (degrees angle) (drawLine model.points)) ]
+                [ (rotate (degrees angle) (drawLine model.points model.color)) ]
                 |> Element.toHtml
             , shakeButton
+            , colorButton red "Red"
+            , colorButton yellow "Yellow"
+            , colorButton blue "Blue"
             ]
 
 
-drawLine : List Point -> Form
-drawLine points =
+drawLine : List Point -> Color -> Form
+drawLine points color =
     let
         intsToFloats : ( Int, Int ) -> ( Float, Float )
         intsToFloats ( x, y ) =
@@ -91,7 +105,7 @@ drawLine points =
             path (List.map intsToFloats points)
     in
         shape
-            |> traced (solid red)
+            |> traced (solid color)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -117,21 +131,39 @@ update msg model =
                 newY =
                     model.y + y
 
-                newClock =
-                    model.clock + dt
-
-                ( newPoints, newAnimation ) =
-                    case (model.animation `equals` (static 0)) of
+                ( newPoints, newAnimation, newAnimations ) =
+                    case (isDone model.clock model.animation) of
                         True ->
-                            ( model.points, model.animation )
+                            let
+                                nextAnimation =
+                                    case List.head model.animations of
+                                        Just animation ->
+                                            animation model.clock
+
+                                        Nothing ->
+                                            static 0
+
+                                nextAnimations =
+                                    (List.tail model.animations)
+                                        |> Maybe.withDefault ([])
+
+                                justFinished =
+                                    nextAnimation
+                                        `equals` (static 0)
+                                        && not (model.animation `equals` (static 0))
+
+                                nextPoints =
+                                    case justFinished of
+                                        True ->
+                                            []
+
+                                        False ->
+                                            model.points
+                            in
+                                ( nextPoints, nextAnimation, nextAnimations )
 
                         False ->
-                            case (isDone model.clock model.animation) of
-                                True ->
-                                    ( [], (static 0) )
-
-                                False ->
-                                    ( model.points, model.animation )
+                            ( model.points, model.animation, model.animations )
 
                 newPoints' =
                     case ( x, y ) of
@@ -143,9 +175,10 @@ update msg model =
 
                 model' =
                     { model
-                        | points = newPoints'
-                        , clock = newClock
+                        | points = ( newX, newY ) :: newPoints'
+                        , clock = model.clock + dt
                         , animation = newAnimation
+                        , animations = newAnimations
                     }
             in
                 case ( x, y ) of
@@ -161,9 +194,12 @@ update msg model =
 
         Shake ->
             { model
-                | animation = shakeAnimation model.clock
+                | animations = animations
             }
                 ! []
+
+        SetColor color ->
+            { model | color = color } ! []
 
 
 main : Program Never
@@ -182,3 +218,35 @@ subscriptions model =
         [ Sub.map KeyboardExtraMsg Keyboard.Extra.subscriptions
         , AnimationFrame.diffs Tick
         ]
+
+
+shakeAnimation : Time -> Animation
+shakeAnimation t =
+    animation t
+        |> from 0
+        |> to 40
+        |> duration (500 * Time.millisecond)
+
+
+shakeAnimation' : Time -> Animation
+shakeAnimation' t =
+    animation t
+        |> from 40
+        |> to -20
+        |> duration (500 * Time.millisecond)
+
+
+shakeAnimation'' : Time -> Animation
+shakeAnimation'' t =
+    animation t
+        |> from -20
+        |> to 10
+        |> duration (500 * Time.millisecond)
+
+
+shakeAnimation''' : Time -> Animation
+shakeAnimation''' t =
+    animation t
+        |> from 10
+        |> to 0
+        |> duration (500 * Time.millisecond)
