@@ -3,15 +3,45 @@ module Main exposing (..)
 import Color exposing (..)
 import Collage exposing (..)
 import Element exposing (..)
-import Keyboard
 import Html exposing (..)
+import Html.Events exposing (onClick)
 import Html.App as App
 import Keyboard.Extra
 import Time exposing (Time, second)
+import AnimationFrame
+import Animation exposing (..)
 
 
-initialModel : ( Model, Cmd Msg )
-initialModel =
+type alias Model =
+    { points : List Point
+    , x : Int
+    , y : Int
+    , keyboardModel : Keyboard.Extra.Model
+    , clock : Time
+    , animation : Animation
+    }
+
+
+type alias Point =
+    ( Int, Int )
+
+
+type Msg
+    = KeyboardExtraMsg Keyboard.Extra.Msg
+    | Tick Time
+    | Shake
+
+
+shakeAnimation : Time -> Animation
+shakeAnimation t =
+    animation t
+        |> from 0
+        |> to 360
+        |> duration (500 * Time.millisecond)
+
+
+init : ( Model, Cmd Msg )
+init =
     let
         ( keyboardModel, keyboardCmd ) =
             Keyboard.Extra.init
@@ -20,29 +50,34 @@ initialModel =
           , x = 0
           , y = 0
           , keyboardModel = keyboardModel
+          , clock =
+                0
+          , animation = static 0
           }
-        , Cmd.map KeyboardExtraMsg keyboardCmd
+        , Cmd.batch
+            [ Cmd.map KeyboardExtraMsg keyboardCmd
+            ]
         )
 
 
-type alias Model =
-    { points : List Point
-    , x : Int
-    , y : Int
-    , keyboardModel : Keyboard.Extra.Model
-    }
-
-
-type alias Point =
-    ( Int, Int )
+shakeButton : Html Msg
+shakeButton =
+    Html.button [ onClick Shake ] [ Html.text "Shake it good" ]
 
 
 view : Model -> Html Msg
 view model =
-    collage 800
-        800
-        [ (drawLine model.points) ]
-        |> Element.toHtml
+    let
+        angle =
+            animate model.clock model.animation
+    in
+        div []
+            [ collage 800
+                800
+                [ (rotate (degrees angle) (drawLine model.points)) ]
+                |> Element.toHtml
+            , shakeButton
+            ]
 
 
 drawLine : List Point -> Form
@@ -59,29 +94,6 @@ drawLine points =
             |> traced (solid red)
 
 
-main : Program Never
-main =
-    App.program
-        { init = initialModel
-        , update = update
-        , view = view
-        , subscriptions = subscriptions
-        }
-
-
-type Msg
-    = KeyboardExtraMsg Keyboard.Extra.Msg
-    | Tick Time
-
-
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.batch
-        [ Sub.map KeyboardExtraMsg Keyboard.Extra.subscriptions
-        , Time.every (1 / 30 * second) Tick
-        ]
-
-
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -94,7 +106,7 @@ update msg model =
                 , Cmd.map KeyboardExtraMsg keyboardCmd
                 )
 
-        Tick _ ->
+        Tick dt ->
             let
                 { x, y } =
                     Keyboard.Extra.arrows model.keyboardModel
@@ -104,38 +116,69 @@ update msg model =
 
                 newY =
                     model.y + y
+
+                newClock =
+                    model.clock + dt
+
+                ( newPoints, newAnimation ) =
+                    case (model.animation `equals` (static 0)) of
+                        True ->
+                            ( model.points, model.animation )
+
+                        False ->
+                            case (isDone model.clock model.animation) of
+                                True ->
+                                    ( [], (static 0) )
+
+                                False ->
+                                    ( model.points, model.animation )
+
+                newPoints' =
+                    case ( x, y ) of
+                        ( 0, 0 ) ->
+                            newPoints
+
+                        _ ->
+                            ( newX, newY ) :: newPoints
+
+                model' =
+                    { model
+                        | points = newPoints'
+                        , clock = newClock
+                        , animation = newAnimation
+                    }
             in
                 case ( x, y ) of
                     ( 0, 0 ) ->
-                        model ! []
+                        model' ! []
 
                     _ ->
-                        { model
-                            | points = ( newX, newY ) :: model.points
-                            , x = newX
+                        { model'
+                            | x = newX
                             , y = newY
                         }
                             ! []
 
+        Shake ->
+            { model
+                | animation = shakeAnimation model.clock
+            }
+                ! []
 
-keyUp : Keyboard.KeyCode -> Model -> Model
-keyUp keyCode model =
-    case keyCode of
-        38 ->
-            --up
-            { model | y = model.y + 1, points = ( model.x, model.y + 1 ) :: model.points }
 
-        40 ->
-            -- down
-            { model | y = model.y - 1, points = ( model.x, model.y - 1 ) :: model.points }
+main : Program Never
+main =
+    App.program
+        { init = init
+        , update = update
+        , view = view
+        , subscriptions = subscriptions
+        }
 
-        37 ->
-            -- left
-            { model | x = model.x - 1, points = ( model.x - 1, model.y ) :: model.points }
 
-        39 ->
-            -- right
-            { model | y = model.x + 1, points = ( model.x + 1, model.y ) :: model.points }
-
-        _ ->
-            model
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Sub.batch
+        [ Sub.map KeyboardExtraMsg Keyboard.Extra.subscriptions
+        , AnimationFrame.diffs Tick
+        ]
